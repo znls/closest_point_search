@@ -118,7 +118,6 @@ int main() {
     // 軌道暦読み込み
     ifstream ifs_eph("eph.csv");
     vector<eph3d> eph;
-    int counter = 0;
     while (getline(ifs_eph, line)) {
         vector<string> strvec = split(line, ',');
         eph3d e;
@@ -127,7 +126,6 @@ int main() {
         e.y = stod(strvec[2]);
         e.z = stod(strvec[3]);
         eph.push_back(e);
-        counter++;
     }
 
     // デバッグライト
