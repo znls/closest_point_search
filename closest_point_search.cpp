@@ -1,6 +1,6 @@
 /*
 参考にしたサイト
-http://www.sousakuba.com/Programming/gs_near_pos_on_line.html
+
 */
 
 #include<vector>
@@ -8,6 +8,7 @@ http://www.sousakuba.com/Programming/gs_near_pos_on_line.html
 #include<fstream>
 #include<sstream>
 #include<iostream>
+#include<iomanip>
 #include<math.h>
 #include<algorithm>
 
@@ -35,7 +36,34 @@ vector<string> split(string& input, char delimiter) {
 
 }
 
-vec3d closest_point_search(const vector<eph3d>& eph, const vec3d& obs)
+// 線形補間
+double lerp(double t, double n1, double n2, double t1, double t2) {
+    return n1 + ((n2 - n1) / (t2 - t1)) * (t - t1);
+}
+
+// 三次元座標の位置を線形補間
+eph3d eph3d_lerp(double t, eph3d A, eph3d B) {
+    eph3d lerp_pos;
+    lerp_pos.epoch = t;
+    lerp_pos.x = lerp(t, A.x, B.x, A.epoch, B.epoch);
+    lerp_pos.y = lerp(t, A.y, B.y, A.epoch, B.epoch);
+    lerp_pos.z = lerp(t, A.z, B.z, A.epoch, B.epoch);
+
+    return lerp_pos;
+
+}
+
+// 2点間の距離
+double dist(eph3d pos1, vec3d pos2) {
+    return sqrt(pow((pos1.x - pos2.x),2) + pow((pos1.y - pos2.y),2) + pow((pos1.z - pos2.z),2));
+}
+
+// distanceの導関数
+double dist_prime(eph3d pos1, vec3d pos2) {
+    return 1 / (2 * dist(pos1, pos2));
+}
+
+eph3d closest_point_search(const vector<eph3d>& eph, const vec3d& obs)
 {
     /*
     最接近地点(X)に一番近いポイントのひとつ前のポイント(A)とひとつ後のポイント(B)を求める
@@ -45,55 +73,35 @@ vec3d closest_point_search(const vector<eph3d>& eph, const vec3d& obs)
     vector<double> vec_normOA;
     // 軌道暦と観測地点(O)との間の距離をすべて計算する
     for (auto& e : eph) {
-        double normOA = sqrt(pow((e.x - obs.x),2) + pow((e.y - obs.y),2)
-                               + pow((e.z - obs.z),2));
+        double normOA = dist(e, obs);
         vec_normOA.push_back(normOA);
     }
     // 計算した距離の最小値のインデックスを取得
     vector<double>::iterator min_iter = min_element(vec_normOA.begin(), vec_normOA.end());
     size_t min_index = distance(vec_normOA.begin(), min_iter);
 
-    // A, Bを決定
+    // A, Bの間に最接近地点が存在する
     A = eph[min_index - 1];
     B = eph[min_index + 1];
 
-    /*
-    ABの単位ベクトルを求める
-    */
-    vec3d AB;  // ベクトルAB
-    AB.x = B.x - A.x;
-    AB.y = B.y - A.y;
-    AB.z = B.z - A.z;
-    // ベクトルABの長さ
-    double length_AB = sqrt( (AB.x*AB.x)+(AB.y*AB.y)+(AB.z*AB.z) );
-    vec3d unitAB;  // ABの単位ベクトル
-    unitAB.x = AB.x / length_AB;
-    unitAB.y = AB.y / length_AB;
-    unitAB.z = AB.z / length_AB;
+    // ニュートン・ラフソン法で使う変数
+    double t0 = A.epoch;
+    eph3d temp_pos = A;
+    double ti;
+    double eps = 1; // エポックtの更新量
 
-    /*
-    最接近地点をX，観測地点をOとして，AXの距離を求める
-        AXの距離 = ABの単位ベクトル ・ ベクトルAO
-            ※ABの単位ベクトルとベクトルAOの内積
-    */
-    vec3d AO;
-    AO.x = obs.x - A.x;
-    AO.y = obs.y - A.y;
-    AO.z = obs.z - A.z;
+    // ニュートン・ラフソン法
+    while (eps < 1E-8) {
+        // t_i+1を求める
+        ti = t0 - dist(temp_pos, obs) / dist_prime(temp_pos, obs);
+        // 値の更新
+        eps = ti - t0;
+        t0 = ti;
+        // 更新したtで線形補間
+        temp_pos = eph3d_lerp(t0, A, B);
+    }
 
-    double distanceAX = unitAB.x*AO.x + unitAB.y*AO.y + unitAB.z*AO.z;
-
-    /*
-    最接近地点Xを求める
-        X = A + (ABの単位ベクトル*AXの距離)
-    */
-
-   vec3d X;
-   X.x = A.x + (unitAB.x * distanceAX);
-   X.y = A.y + (unitAB.y * distanceAX);
-   X.z = A.z + (unitAB.z * distanceAX);
-
-   return X;
+    return temp_pos;
 }
 
 int main() {
@@ -109,12 +117,6 @@ int main() {
     obs_point.y = stod(strvec[1]);
     obs_point.z = stod(strvec[2]);
 
-    // デバッグライト
-    // cout << "観測地点:" << endl;
-    // cout << "x = " << obs_point.x << endl;
-    // cout << "y = " << obs_point.y << endl;
-    // cout << "z = " << obs_point.z << endl;
-
     // 軌道暦読み込み
     ifstream ifs_eph("eph.csv");
     vector<eph3d> eph;
@@ -128,21 +130,13 @@ int main() {
         eph.push_back(e);
     }
 
-    // デバッグライト
-    // cout << "軌道暦" << endl;
-    // for (auto& e : eph) {
-    //     cout << "epoch = " << e.epoch << endl;
-    //     cout << "x = " << e.x << endl;
-    //     cout << "y = " << e.y << endl;
-    //     cout << "z = " << e.z << endl;
-    // }
-
-    vec3d closest_point = closest_point_search(eph, obs_point);
+    eph3d closest_point = closest_point_search(eph, obs_point);
 
     // 結果出力
     cout << "最接近地点:" << endl;
-    cout << "x = " << closest_point.x << endl;
-    cout << "y = " << closest_point.y << endl;
-    cout << "z = " << closest_point.z << endl;
+    cout << "epoch = " << fixed << setprecision(10) <<closest_point.epoch << endl;
+    cout << "x = " << fixed << setprecision(3) << closest_point.x << endl;
+    cout << "y = " << fixed << setprecision(3) << closest_point.y << endl;
+    cout << "z = " << fixed << setprecision(3) << closest_point.z << endl;
 
 }
